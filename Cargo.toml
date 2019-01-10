@@ -1,0 +1,10 @@
+[package]
+name = "livedevel"
+version = "0.0.0"
+publish = false
+
+[dependencies]
+actix = "0.7"
+actix-web = "0.7"
+notify = "4.0.6"
+
