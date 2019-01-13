@@ -4,11 +4,11 @@ extern crate notify;
 
 use actix::*;
 use actix_web::{server, App, HttpRequest, fs, HttpResponse, Error, ws};
-use actix_web::middleware::{Middleware, Started};
+use actix_web::middleware::{Middleware, Started, Response};
+use actix_web::http::{header};
 
 use std::fs::File;
 use std::io::prelude::*;
-use std::collections::HashSet;
 
 mod filewatcher;
 use filewatcher::*;
@@ -61,6 +61,16 @@ impl Middleware<AppState> for CatchFilepath {
             println!("not connected...");
         }
         Ok(Started::Done)
+    }
+
+    // Disabe Caching... (TODO should be a separate middleware)
+    fn response(&self, req: &HttpRequest<AppState>, mut resp: HttpResponse)
+        -> Result<Response, Error>
+    {
+        resp.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-cache"));
+        Ok(Response::Done(resp))
     }
 }
 
