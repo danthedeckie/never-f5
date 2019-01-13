@@ -28,19 +28,21 @@ Now, whenever any files in that directory are changed, it'll refresh the page.
 
 ## NEXT STEPS:
 
-1) I don't actually want it to refresh on every file change - only on files that have been requested.  So Makefile changes, or source changes before they get compiled, and so on should be ignored.
+0) Tidying up - general fixing / cleaning / organising / documenting / refactoring.
 
-2) I don't want it to refresh UNLESS YOU WANT IT TO.  So there should be a hook to allow it to call a user-defined 'file-changed' callback in the page.  This should allow you to save state (if you want to).
+1) I don't want it to refresh UNLESS YOU WANT IT TO.  So there should be a hook to allow it to call a user-defined 'file-changed' callback in the page.  This should allow you to save state (if you want to).
 
-3) Make sure all the actix-web settings are tuned for this kind of work.  We aren't expecting a million requests and hundreds of simultanious connections.  - THAT SAID - It should allow you to have a bunch of different browsers, devices, etc. all viewing the same document.
+2) Make sure all the actix-web settings are tuned for this kind of work.  We aren't expecting a million requests and hundreds of simultanious connections.  - THAT SAID - It should allow you to have a bunch of different browsers, devices, etc. all viewing the same document.
 
-4) Have a 'save-state/load-state' kind of route, so that you could make changes on one device, and see them reflected on multiple devices instantly - is this a good idea?
+3) Have a 'save-state/load-state' kind of route, so that you could make changes on one device, and see them reflected on multiple devices instantly - is this a good idea?
 
 ## Current State:
 
 Very 'Work in Progress'.  I hacked this together very quickly, learning Rust and Actix-Web in the process.
-It currently refreshes on every file change in the current directoy - which isn't ideal, but at least proves the concept.
+It currently only works when serving directly in the current directory - so what I need, but I could see need for more configurability.
 
 So it's technically usable for me now, already, which is pretty awesome.
 
 I put this on github now simply as an off-site backup from my laptop - and in case anyone else wants a similar tool.
+
+It could really do with tidying up a lot.
