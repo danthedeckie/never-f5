@@ -2,6 +2,8 @@ extern crate actix;
 extern crate actix_web;
 extern crate notify;
 
+use std::fmt;
+
 use self::actix::*;
 
 use filewatcher::*;
@@ -26,6 +28,12 @@ pub struct ClientList {
     sessions: Vec<Recipient<SomethingChanged>>,
 }
 
+impl fmt::Debug for ClientList {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ClientList")
+    }
+}
+
 impl Actor for ClientList {
     type Context = Context<Self>;
 }
@@ -34,9 +42,7 @@ impl Handler<NewSession> for ClientList {
     type Result = ();
 
     fn handle(&mut self, msg: NewSession, _: &mut Context<Self>) -> Self::Result {
-        println!("ClientList:Someone Joined!");
         self.sessions.push(msg.addr);
-        println!("length:{}", self.sessions.len());
     }
 }
 
@@ -44,7 +50,6 @@ impl Handler<EndSession> for ClientList {
     type Result = ();
 
     fn handle(&mut self, msg: EndSession, _: &mut Context<Self>) -> Self::Result {
-        println!("ClientList:Someone Quit!");
         let addr = msg.addr.clone();
         let i = self.sessions.iter().position(|ref a| a == &&addr).unwrap();
         self.sessions.remove(i);
@@ -58,6 +63,7 @@ impl Handler<ReloadYall> for ClientList {
         self.tell_everyone_to_reload();
     }
 }
+
 
 impl Default for ClientList {
     fn default() -> ClientList {
