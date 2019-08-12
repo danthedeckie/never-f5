@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::fs::canonicalize;
 
 use actix::prelude::*;
-use actix::{Arbiter, Addr};
-use futures::Future;
+use actix::Arbiter;
+//use futures::Future;
 use actix;
 
 //extern crate crossbeam_channel;
@@ -48,7 +48,7 @@ impl Actor for WatcherHandler {
         self.start_watching(ctx.address().recipient()) ;//&self.recipient());
     }
 
-    fn stopped(&mut self, ctx: &mut Context<Self>) {
+    fn stopped(&mut self, _ctx: &mut Context<Self>) {
         self.arbiter.stop();
     }
 }
@@ -56,7 +56,7 @@ impl Actor for WatcherHandler {
 impl WatcherHandler {
     pub fn new(watchdir: &str, clientlist: Recipient<SomethingChanged>) -> WatcherHandler {
         let (tx, rx) = unbounded();
-        let mut watcher: RecommendedWatcher = Watcher::new(tx.clone(), Duration::from_secs(1)).unwrap();
+        let mut watcher: RecommendedWatcher = Watcher::new(tx.clone(), Duration::from_millis(10)).unwrap();
 
         let a = Arbiter::new();
 
@@ -102,7 +102,7 @@ impl WatcherHandler {
 impl Handler<SomethingChanged> for WatcherHandler {
     type Result = ();
 
-    fn handle(&mut self, evt: SomethingChanged, ctx: &mut Self::Context) {
+    fn handle(&mut self, evt: SomethingChanged, _ctx: &mut Self::Context) {
         if self.watching.contains(&evt.filename) {
             match self.clientlist.try_send(evt) {
                 Ok(()) => (),
@@ -117,7 +117,7 @@ impl Handler<SomethingChanged> for WatcherHandler {
 impl Handler<PleaseWatch> for WatcherHandler {
     type Result = Result<bool, io::Error>;
 
-    fn handle(&mut self, msg: PleaseWatch, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: PleaseWatch, _ctx: &mut Context<Self>) -> Self::Result {
         if let Some(fullname) = self.watchdir.join(msg.filename.trim_matches('/').trim_end_matches('!')).to_str() {
             self.watching.insert(fullname.to_string());
         } else {

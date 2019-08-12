@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-use std::sync::Mutex;
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -11,7 +9,6 @@ use listenfd::ListenFd;
 use actix_service::Service;
 use futures::future::Future;
 
-use actix::dev::{MessageResponse, ResponseChannel};
 use actix::prelude::*;
 
 mod filewatcher;
@@ -69,7 +66,7 @@ pub fn ws_route(req: HttpRequest, stream: web::Payload, srv: web::Data<AppState>
 fn main() {
     let mut listenfd = ListenFd::from_env();
 
-    let sys = System::new("example");
+    let _sys = System::new("example");
     let my_clientlist = ClientList::start_default();
     let c2 = my_clientlist.clone();
 
@@ -91,11 +88,11 @@ fn main() {
                 .service(web::resource("/!!/").route(web::get().to(ws_route)))
                 // Middleware to store all requested filenames in state.requested_files
                 .wrap_fn(move |req, srv| {
-                    state2.watcher.try_send(PleaseWatch{filename: String::from(req.path())});
-                    // TODO: add no-cache headers!
+                    state2.watcher.do_send(PleaseWatch{filename: String::from(req.path())});
                     srv.call(req).map(|mut res| {
-                        let mut headers = res.headers_mut();
-                        headers.insert(http::header::CACHE_CONTROL, http::header::HeaderValue::from_static("no-cache"));
+                        let headers = res.headers_mut();
+                        headers.insert(http::header::CACHE_CONTROL,
+                                       http::header::HeaderValue::from_static("no-cache"));
                         res
                     })
                 })

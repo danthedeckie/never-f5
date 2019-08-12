@@ -1,7 +1,4 @@
-use std::collections::{HashMap, HashSet};
-
 use actix::prelude::*;
-use actix_web::{web, Error, HttpRequest, HttpResponse};
 use actix_web_actors::ws;
 
 use crate::filewatcher::{SomethingChanged};
@@ -35,10 +32,14 @@ impl Actor for ClientList {
 impl Handler<SomethingChanged> for ClientList {
     type Result = ();
 
-    fn handle(&mut self, evt: SomethingChanged, ctx: &mut Self::Context) {
+    fn handle(&mut self, evt: SomethingChanged, _ctx: &mut Self::Context) {
         let client_event = ClientMsgSomethingChanged { filename: evt.filename };
         for client in self.sessions.iter() {
-            client.try_send(client_event.clone());
+            match client.try_send(client_event.clone()) {
+                Ok(()) => (),
+                Err(e) => println!("Error sending to client. {:?}", e),
+            }
+
         }
     }
 }
@@ -68,11 +69,11 @@ impl Actor for Client {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.clientlist.try_send(ClientConnect { addr: ctx.address().recipient() });
+        self.clientlist.do_send(ClientConnect { addr: ctx.address().recipient() });
     }
 
     fn stopping(&mut self, ctx: &mut Self::Context) -> Running {
-        self.clientlist.try_send(ClientDisconnect { addr: ctx.address().recipient() });
+        self.clientlist.do_send(ClientDisconnect { addr: ctx.address().recipient() });
         Running::Stop
     }
 }
@@ -85,7 +86,7 @@ impl Handler<ClientMsgSomethingChanged> for Client {
 }
 
 impl StreamHandler<ws::Message, ws::ProtocolError> for Client {
-    fn handle(&mut self, msg: ws::Message, ctx: &mut Self::Context) {
-        println!("WS Message: {:?}", msg);
+    fn handle(&mut self, msg: ws::Message, _ctx: &mut Self::Context) {
+        println!("WS Message from client: {:?}", msg);
     }
 }
