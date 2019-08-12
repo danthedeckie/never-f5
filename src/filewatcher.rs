@@ -1,151 +1,129 @@
-extern crate actix;
-extern crate actix_web;
-extern crate notify;
-
-use self::actix::*;
 use std::collections::HashSet;
+use std::io;
+use std::path::PathBuf;
+use std::fs::canonicalize;
 
-use self::notify::{Watcher, RecursiveMode, watcher, DebouncedEvent};
-use std::sync::mpsc::channel;
+use actix::prelude::*;
+use actix::{Arbiter, Addr};
+use futures::Future;
+use actix;
+
+//extern crate crossbeam_channel;
+//extern crate notify;
+
+use crossbeam_channel::{unbounded, Sender, Receiver};
+use notify::{RecommendedWatcher, RecursiveMode, Result as NResult, Watcher, Event};
 use std::time::Duration;
-use std::env::{current_dir};
 
-use clientlist;
+// Messages:
 
-//  Internal 'real' filewatcher.
-
-#[derive(Message)]
-struct FileChanged{
-    pub filename: String,
-}
-
-#[derive(Message)]
-struct HereIAm{
-    pub addr: Addr<FileWatcher>,
-}
-
-#[derive(Debug)]
-pub struct UnreachableFileWatcher {
-    pub file_watcher: Option<Addr<FileWatcher>>,
-}
-
-impl Actor for UnreachableFileWatcher {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-    }
-}
-
-impl Handler<HereIAm> for UnreachableFileWatcher {
-    type Result = ();
-
-    fn handle(&mut self, here: HereIAm, _: &mut Context<Self>) -> Self::Result {
-        self.file_watcher = Some(here.addr);
-        let (tx, rx) = channel();
-        let mut watcher = watcher(tx, Duration::from_secs(1)).unwrap();
-
-        watcher.watch(".", RecursiveMode::Recursive).unwrap();
-
-        loop {
-            match rx.recv() {
-                Ok(event) => {
-                    // println!("{:?}", event);
-                    let path = match event {
-                        DebouncedEvent::NoticeWrite(p) => Some(p),
-                        DebouncedEvent::Create(p) => Some(p),
-                        DebouncedEvent::Write(p) => Some(p),
-                        DebouncedEvent::Rename(_, p) => Some(p),
-                        _ => None,
-                    };
-                    if let Some(p) = path {
-                        if let Some(pp) = p.to_str() {
-                            //ctx.state().file_watcher.do_send(FileChanged{filename: String::from(pp)});
-                            if let Some(ref fw) = self.file_watcher {
-                                fw.do_send(FileChanged{filename: String::from(pp)});
-                            } else {
-                                println!("ERR: There is no attached file watcher!");
-                            }
-                        }
-                    }
-                },
-                Err(e) => println!("WErr: {:?}", e),
-            }
-        }
-
-
-    }
-}
-
-// --------------------------------
-// File Watcher Actor:
-
-#[derive(Message)]
-pub struct SomethingChanged();
-
-#[derive(Message)]
 pub struct PleaseWatch {
     pub filename: String,
 }
 
+impl Message for PleaseWatch { type Result = Result<bool, io::Error>; }
+
 #[derive(Debug)]
-pub struct FileWatcher {
-    pub requested_files: HashSet<String>,
-    pub client_list: Option<Addr<clientlist::ClientList>>,
-    realwatcher: Addr<UnreachableFileWatcher>,
-    cdir: String,
+pub struct SomethingChanged {
+    pub filename: String,
 }
 
-impl Actor for FileWatcher {
+impl Message for SomethingChanged { type Result = (); }
+
+
+// The actor:
+pub struct WatcherHandler{
+    watchdir: PathBuf,
+    watching: HashSet<String>,
+    arbiter: Arbiter,
+    channel: (Sender<NResult<Event>>, Receiver<NResult<Event>>),
+    clientlist: Recipient<SomethingChanged>,
+    watcher: RecommendedWatcher,
+}
+
+impl Actor for WatcherHandler {
     type Context = Context<Self>;
 
-    fn started(&mut self, ctx: &mut Self::Context) {
-        let addr = ctx.address();
-        self.realwatcher.do_send(HereIAm{ addr: addr});
+    fn started(&mut self, ctx: &mut Context<Self>) {
+        self.start_watching(ctx.address().recipient()) ;//&self.recipient());
+    }
+
+    fn stopped(&mut self, ctx: &mut Context<Self>) {
+        self.arbiter.stop();
     }
 }
 
-impl Handler<PleaseWatch> for FileWatcher {
-    type Result = ();
+impl WatcherHandler {
+    pub fn new(watchdir: &str, clientlist: Recipient<SomethingChanged>) -> WatcherHandler {
+        let (tx, rx) = unbounded();
+        let mut watcher: RecommendedWatcher = Watcher::new(tx.clone(), Duration::from_secs(1)).unwrap();
 
-    fn handle(&mut self, pls: PleaseWatch, _: &mut Context<Self>) -> Self::Result {
-        let mut filename = pls.filename;
-        if filename.ends_with("!") {
-            filename.pop();
+        let a = Arbiter::new();
+
+        let full_pathname = canonicalize(watchdir).unwrap();
+
+        watcher.watch(&full_pathname, RecursiveMode::Recursive).unwrap();
+
+        WatcherHandler {
+            watchdir: full_pathname,
+            watching: HashSet::new(),
+            channel: (tx, rx),
+            arbiter: a,
+            clientlist: clientlist,
+            watcher: watcher,
         }
-        filename.insert_str(0, &self.cdir);
+    }
 
-        self.requested_files.insert(filename);
-        println!("watching: {:?}", self.requested_files);
+    fn start_watching(&mut self, addr: Recipient<SomethingChanged>) {
+        let me = addr.clone();
+        let (_, rx2) = &self.channel; //.clone();
+        let rx = rx2.clone();
+
+        self.arbiter.exec_fn(move || {
+            loop {
+                match rx.recv() {
+                    Ok(Ok(event)) => {
+                        for path in event.paths {
+                            let result = me.try_send(SomethingChanged {filename: String::from(path.to_str().unwrap()) });
+                            match result {
+                                Ok(()) => (),
+                                Err(e) => println!("Error telling main thread: {:?}", e),
+                            }
+                        }
+                    },
+                    Ok(Err(err)) => println!("recieved an error? {:?}", err),
+                    Err(err) => println!("watch error... {:?}", err),
+                };
+            }
+        });
     }
 }
 
-impl Handler<FileChanged> for FileWatcher {
+impl Handler<SomethingChanged> for WatcherHandler {
     type Result = ();
 
-    fn handle(&mut self, file: FileChanged, _: &mut Context<Self>) -> Self::Result {
-        if self.requested_files.contains(&file.filename) {
-            if let Some(clientlist) = self.client_list.clone() {
-                clientlist.do_send(clientlist::ReloadYall);
+    fn handle(&mut self, evt: SomethingChanged, ctx: &mut Self::Context) {
+        if self.watching.contains(&evt.filename) {
+            match self.clientlist.try_send(evt) {
+                Ok(()) => (),
+                Err(e) => println!("error sending to clientlist! {:?}", e),
             }
         }
     }
+
 }
 
-impl FileWatcher {
-    pub fn new(dir: &str, client_list: Addr<clientlist::ClientList>, realwatcher: Addr<UnreachableFileWatcher>) -> FileWatcher {
-        FileWatcher {
-            requested_files: HashSet::new(),
-            client_list: Some(client_list),
-            realwatcher: realwatcher,
-            cdir: String::from(current_dir().unwrap().to_str().unwrap()),
-            }
-    }
-}
 
-impl UnreachableFileWatcher {
-    pub fn new(dir: &str) -> UnreachableFileWatcher {
-        UnreachableFileWatcher {
-            file_watcher: None,
+impl Handler<PleaseWatch> for WatcherHandler {
+    type Result = Result<bool, io::Error>;
+
+    fn handle(&mut self, msg: PleaseWatch, ctx: &mut Context<Self>) -> Self::Result {
+        if let Some(fullname) = self.watchdir.join(msg.filename.trim_matches('/').trim_end_matches('!')).to_str() {
+            self.watching.insert(fullname.to_string());
+        } else {
+            println!("couldn't add path...");
         }
+        println!("Watching: {:?}", self.watching);
+        Ok(true)
     }
 }
