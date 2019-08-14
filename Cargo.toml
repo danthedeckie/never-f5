@@ -1,8 +1,18 @@
 [package]
 name = "never_f5"
 version = "0.1.0"
-publish = false
+publish = true
 edition = "2018"
+
+authors = ["Daniel Fairhead <danthedeckie@gmail.com>"]
+license = "GPL-3.0-only"
+description = "An auto-reloading web server for development"
+readme = "README.md"
+homepage = "https://github.com/danthedeckie/never-f5"
+repository = "https://github.com/danthedeckie/never-f5"
+keywords = ["cli", "webserver", "websockets", "reloading", "development"]
+categories = ["command-line-utilities", "web-programming::http-server", "development-tools"]
+
 
 [dependencies]
 actix="0.8.3"
