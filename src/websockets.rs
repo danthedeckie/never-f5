@@ -38,7 +38,7 @@ impl Handler<SomethingChanged> for ClientList {
         for client in self.sessions.iter() {
             match client.try_send(client_event.clone()) {
                 Ok(()) => (),
-                Err(e) => println!("Error sending to client. {:?}", e),
+                Err(e) => eprintln!("Error sending to client. {:?}", e),
             }
 
         }

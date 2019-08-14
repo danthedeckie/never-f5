@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{File, read_to_string};
 use std::io::prelude::*;
 
 use actix_web::{web, http, App, HttpRequest, HttpServer, HttpResponse, Error};
@@ -11,11 +11,38 @@ use futures::future::Future;
 
 use actix::prelude::*;
 
+#[macro_use]
+extern crate structopt;
+
+use std::path::PathBuf;
+use structopt::StructOpt;
+
 mod filewatcher;
 use crate::filewatcher::*;
 
 mod websockets;
 use crate::websockets::*;
+
+////////////////////////////////////////////////////////////////////////////////
+/// Main Commandline Options:
+////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, StructOpt, Clone)]
+#[structopt(name="serveme", about="Autoreloading web development server")]
+pub struct Options {
+    /// Address + port
+    #[structopt(short="a", long="address", default_value="127.0.0.1:8088")]
+    address: String,
+    /// Quiet mode (Doesn't do much yet)
+    #[structopt(short="q", long="quiet")]
+    quiet: bool,
+    /// File System Event Debounce Time
+    #[structopt(short="d", long="debounce", default_value="10")]
+    debouncetime: u64,
+    /// JS Injection file
+    #[structopt(short="j", long="javascript-file")]
+    js: Option<PathBuf>,
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Static files adding the websockets injection:
@@ -43,7 +70,7 @@ const WS_INJECTION: &str = "
         })();
     </script>";
 
-fn nonstatic_handler(req: HttpRequest) -> Result<HttpResponse, Error> {
+fn nonstatic_handler(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, Error> {
     let uri = req.path();
 
     let filename: &str = if uri.ends_with("!") {
@@ -54,13 +81,22 @@ fn nonstatic_handler(req: HttpRequest) -> Result<HttpResponse, Error> {
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     if uri.ends_with("!") {
-        contents.push_str(WS_INJECTION);
+        if let Some(js_filename) = &data.config.js {
+            let js_file = read_to_string(js_filename);
+            if let Ok(js_contents) = js_file {
+                contents.push_str("<script>");
+                contents.push_str(&js_contents);
+                contents.push_str("</script>");
+            }
+
+        } else {
+            contents.push_str(WS_INJECTION);
+        }
     }
     Ok(HttpResponse::Ok()
-            .content_type("text/html")
-            .body(contents))
+       .content_type("text/html")
+       .body(contents))
 }
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -69,27 +105,37 @@ fn nonstatic_handler(req: HttpRequest) -> Result<HttpResponse, Error> {
 pub struct AppState {
     pub watcher: Addr<WatcherHandler>,
     pub clientlist: Addr<websockets::ClientList>,
+    pub config: Options,
 }
 
 pub fn ws_route(req: HttpRequest, stream: web::Payload, srv: web::Data<AppState>) -> Result<HttpResponse, Error> {
-    println!("client connected.");
+    if ! srv.config.quiet {
+        println!("client connected.");
+    }
     ws::start( websockets::Client { clientlist: srv.clientlist.clone() }, &req, stream)
 }
 
-fn main() {
+
+fn start_server(options: Options) {
     let mut listenfd = ListenFd::from_env();
 
     let _sys = System::new("example");
     let my_clientlist = ClientList::start_default();
     let c2 = my_clientlist.clone();
 
-    let my_watcher = WatcherHandler::new(".", my_clientlist.recipient()).start();
+    let my_watcher = WatcherHandler::new(".", my_clientlist.recipient(), options.debouncetime).start();
+
+    if let Some(js_file) = &options.js {
+        if let Some(js_filestring) = js_file.to_str() {
+        my_watcher.do_send(PleaseWatch{filename: js_filestring.to_string()});
+        }
+    }
 
     let state = web::Data::new(AppState {
         watcher: my_watcher,
         clientlist: c2,
+        config: options.clone(),
     });
-
 
     let mut server = HttpServer::new(
         move || {
@@ -120,10 +166,18 @@ fn main() {
     server = if let Some(l) = listenfd.take_tcp_listener(0).unwrap() {
         server.listen(l).unwrap()
     } else {
-        server.bind("127.0.0.1:8088").unwrap()
+        server.bind(&options.address).unwrap()
     };
 
-    println!("Listening on 127.0.0.1:8088");
+    if ! &options.quiet {
+        println!("Listening on {}", &options.address);
+    }
 
     server.run().unwrap();
+}
+
+fn main() {
+    let options = Options::from_args();
+    println!("{:?}", options);
+    start_server(options);
 }

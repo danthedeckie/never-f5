@@ -50,9 +50,9 @@ impl Actor for WatcherHandler {
 }
 
 impl WatcherHandler {
-    pub fn new(watchdir: &str, clientlist: Recipient<SomethingChanged>) -> WatcherHandler {
+    pub fn new(watchdir: &str, clientlist: Recipient<SomethingChanged>, debouncetime: u64) -> WatcherHandler {
         let (tx, rx) = unbounded();
-        let mut watcher: RecommendedWatcher = Watcher::new(tx.clone(), Duration::from_millis(10)).unwrap();
+        let mut watcher: RecommendedWatcher = Watcher::new(tx.clone(), Duration::from_millis(debouncetime)).unwrap();
 
         let a = Arbiter::new();
 
@@ -84,17 +84,20 @@ impl WatcherHandler {
                             let result = me.try_send(SomethingChanged {filename: String::from(path.to_str().unwrap()) });
                             match result {
                                 Ok(()) => (),
-                                Err(e) => println!("Error telling main thread: {:?}", e),
+                                Err(e) => {
+                                    eprintln!("Error telling main thread: {:?}", e);
+                                    break
+                                },
                             }
                         }
                     },
-                    Ok(Err(err)) => println!("recieved an error? {:?}", err),
+                    Ok(Err(err)) => eprintln!("recieved an error? {:?}", err),
                     Err(RecvError) => {
                         // Channel Disconnected. Goodbye!
                         break
                     },
                     Err(err) => {
-                        println!("watch error... {:?}", err)
+                        eprintln!("watch error... {:?}", err)
                     },
                 };
             }
@@ -109,7 +112,7 @@ impl Handler<SomethingChanged> for WatcherHandler {
         if self.watching.contains(&evt.filename) {
             match self.clientlist.try_send(evt) {
                 Ok(()) => (),
-                Err(e) => println!("error sending to clientlist! {:?}", e),
+                Err(e) => eprintln!("error sending to clientlist! {:?}", e),
             }
         }
     }
@@ -124,7 +127,7 @@ impl Handler<PleaseWatch> for WatcherHandler {
         if let Some(fullname) = self.watchdir.join(msg.filename.trim_matches('/').trim_end_matches('!')).to_str() {
             self.watching.insert(fullname.to_string());
         } else {
-            println!("couldn't add path...");
+            eprintln!("couldn't add path...");
         }
         println!("Watching: {:?}", self.watching);
         Ok(true)
