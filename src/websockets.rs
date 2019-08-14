@@ -12,6 +12,7 @@ impl Message for ClientMsgSomethingChanged { type Result = (); }
 
 struct ClientConnect { pub addr:Recipient<ClientMsgSomethingChanged> }
 impl Message for ClientConnect { type Result = (); }
+
 struct ClientDisconnect { pub addr:Recipient<ClientMsgSomethingChanged> }
 impl Message for ClientDisconnect { type Result = (); }
 
@@ -48,13 +49,17 @@ impl Handler<ClientConnect> for ClientList {
     type Result = ();
     fn handle(&mut self, msg: ClientConnect, _: &mut Context<Self>) -> Self::Result {
         self.sessions.push(msg.addr);
+        println!("{} clients connected", self.sessions.len());
     }
 }
 
 impl Handler<ClientDisconnect> for ClientList {
     type Result = ();
     fn handle(&mut self, msg: ClientDisconnect, _: &mut Context<Self>) -> Self::Result {
-        // TODO
+        if let Some(i) = self.sessions.iter().position(|x| x == &msg.addr) {
+            self.sessions.swap_remove(i);
+        }
+        println!("{} clients connected", self.sessions.len());
     }
 }
 
@@ -86,7 +91,14 @@ impl Handler<ClientMsgSomethingChanged> for Client {
 }
 
 impl StreamHandler<ws::Message, ws::ProtocolError> for Client {
-    fn handle(&mut self, msg: ws::Message, _ctx: &mut Self::Context) {
-        println!("WS Message from client: {:?}", msg);
+    fn handle(&mut self, msg: ws::Message, ctx: &mut Self::Context) {
+        match msg {
+            ws::Message::Close(_) => {
+                ctx.stop();
+            },
+            _ => {
+                println!("WS Message from client: {:?}", msg);
+            }
+        };
     }
 }

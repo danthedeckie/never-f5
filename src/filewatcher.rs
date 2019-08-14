@@ -2,18 +2,14 @@ use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 use std::fs::canonicalize;
+use std::time::Duration;
 
 use actix::prelude::*;
 use actix::Arbiter;
-//use futures::Future;
 use actix;
 
-//extern crate crossbeam_channel;
-//extern crate notify;
-
-use crossbeam_channel::{unbounded, Sender, Receiver};
+use crossbeam_channel::{unbounded, Sender, Receiver, RecvError};
 use notify::{RecommendedWatcher, RecursiveMode, Result as NResult, Watcher, Event};
-use std::time::Duration;
 
 // Messages:
 
@@ -84,6 +80,7 @@ impl WatcherHandler {
                 match rx.recv() {
                     Ok(Ok(event)) => {
                         for path in event.paths {
+
                             let result = me.try_send(SomethingChanged {filename: String::from(path.to_str().unwrap()) });
                             match result {
                                 Ok(()) => (),
@@ -92,7 +89,13 @@ impl WatcherHandler {
                         }
                     },
                     Ok(Err(err)) => println!("recieved an error? {:?}", err),
-                    Err(err) => println!("watch error... {:?}", err),
+                    Err(RecvError) => {
+                        // Channel Disconnected. Goodbye!
+                        break
+                    },
+                    Err(err) => {
+                        println!("watch error... {:?}", err)
+                    },
                 };
             }
         });

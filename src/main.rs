@@ -23,11 +23,24 @@ use crate::websockets::*;
 
 const WS_INJECTION: &str = "
     <script>
-        var ws = new WebSocket('ws://' + document.URL.match('.*://([^/]*)/')[1] + '/!!/');
-        ws.onmessage = function (evt) {
+        (function() {
+        var ws_url = 'ws://' + document.URL.match('.*://([^/]*)/')[1] + '/!!/';
+        var ws = new WebSocket(ws_url);
+        var reload = function() {
+            window._autoreload_save && window._autoreload_save();
             document.location.replace(document.URL);
-            // document.location.reload(true);
-        }
+        };
+
+        ws.onmessage = reload;
+        ws.onclose = function(evt) {
+            console.log('Server disconnected! Retrying...');
+            setInterval(function() {
+                var ws = new WebSocket(ws_url);
+                ws.onopen = reload;
+            }, 1000);
+        };
+        window._autoreload_load && window._autoreload_load();
+        })();
     </script>";
 
 fn nonstatic_handler(req: HttpRequest) -> Result<HttpResponse, Error> {
@@ -109,6 +122,8 @@ fn main() {
     } else {
         server.bind("127.0.0.1:8088").unwrap()
     };
+
+    println!("Listening on 127.0.0.1:8088");
 
     server.run().unwrap();
 }
